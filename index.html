@@ -1,0 +1,275 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BUDDY MATCH ANALYST</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#080d18;color:#fff;font-family:Arial,sans-serif;padding:16px}
+header{text-align:center;padding:18px 5px}
+h1{color:#37d6a0;font-size:27px;margin:5px}
+.sub{color:#9aa8bb;font-size:13px}
+.card{background:#141e30;border:1px solid #293950;border-radius:13px;padding:17px;margin:13px 0}
+label{display:block;color:#aebbd0;margin-bottom:9px}
+select,button{width:100%;padding:14px;border-radius:9px;border:1px solid #40516a;background:#0b1424;color:white;font-size:16px}
+button{background:#087f60;border:0;font-weight:bold;margin-top:12px}
+button.stop{background:#b23b48}
+.status{color:#f6c75b;font-weight:bold}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.metric{background:#0b1424;border-radius:10px;padding:15px;text-align:center}
+.metric strong{display:block;font-size:27px;color:#37d6a0;margin-top:8px}
+.prediction{text-align:center;padding:18px}
+.prediction h2{font-size:25px;color:#37d6a0}
+.digit{font-size:55px;font-weight:bold}
+.small{font-size:12px;color:#9aa8bb}
+table{width:100%;border-collapse:collapse;text-align:center}
+td,th{padding:9px;border-bottom:1px solid #344056}
+th{color:#37d6a0}
+#digits{display:flex;flex-wrap:wrap;gap:7px}
+.digitbox{background:#26364d;border-radius:7px;padding:10px;min-width:39px;text-align:center}
+.active{background:#087f60}
+footer{text-align:center;color:#8997aa;font-size:12px;margin:25px 0}
+</style>
+</head>
+<body>
+
+<header>
+<h1> BUDDY MATCH ANALYST </h1>
+<p class="sub">DERIV SYNTHETIC INDICES • DIGITS ANALYSIS</p>
+</header>
+
+<div class="card">
+<label>Select Synthetic Index</label>
+<select id="symbol">
+<option value="1HZ100V">Volatility 100 (1s)</option>
+<option value="1HZ10V">Volatility 10 (1s)</option>
+<option value="1HZ25V">Volatility 25 (1s)</option>
+<option value="1HZ50V">Volatility 50 (1s)</option>
+<option value="1HZ75V">Volatility 75 (1s)</option>
+<option value="1HZ150V">Volatility 150 (1s)</option>
+<option value="1HZ200V">Volatility 200 (1s)</option>
+<option value="1HZ250V">Volatility 250 (1s)</option>
+<option value="1HZ300V">Volatility 300 (1s)</option>
+<option value="1HZ400V">Volatility 400 (1s)</option>
+<option value="1HZ500V">Volatility 500 (1s)</option>
+<option value="R_10">Volatility 10</option>
+<option value="R_25">Volatility 25</option>
+<option value="R_50">Volatility 50</option>
+<option value="R_75">Volatility 75</option>
+<option value="R_100">Volatility 100</option>
+</select>
+<button id="start">CONNECT & START ANALYSIS</button>
+<button id="stop" class="stop">STOP ANALYSIS</button>
+<p class="status" id="status">● DISCONNECTED</p>
+</div>
+
+<div class="grid">
+<div class="card metric">
+Last Digit
+<strong id="last">-</strong>
+</div>
+<div class="card metric">
+Ticks Collected
+<strong id="count">0</strong>
+</div>
+</div>
+
+<div class="card prediction">
+<p class="sub">MATCHES ANALYSIS</p>
+<h2 id="match">WAITING</h2>
+<div class="digit" id="matchDigit">-</div>
+<p id="matchRate">Frequency: -</p>
+</div>
+
+<div class="card prediction">
+<p class="sub">DIFFERS ANALYSIS</p>
+<h2 id="differ">WAITING</h2>
+<div class="digit" id="differDigit">-</div>
+<p id="differRate">Frequency: -</p>
+</div>
+
+<div class="card">
+<h3>Digit Frequency (Last 100 ticks)</h3>
+<div id="digits"></div>
+</div>
+
+<div class="card">
+<h3>Recent Tick History</h3>
+<table>
+<thead><tr><th>Number</th><th>Last Digit</th></tr></thead>
+<tbody id="history"></tbody>
+</table>
+</div>
+
+<div class="card">
+<h3>How analysis works</h3>
+<p class="small">
+Matches: identifies the most frequent digit in the sample.
+</p>
+<p class="small">
+Differs: identifies the least frequent digit in the sample.
+</p>
+<p class="small">
+This is historical statistical analysis, not a guarantee of the next result.
+</p>
+</div>
+
+<footer>BUDDY MATCH ANALYST © 2026</footer>
+
+<script>
+const APP_ID = 1089; // Testing ID. Register your own app ID before production.
+
+let ws = null;
+let digits = [];
+let subscriptionId = null;
+let currentSymbol = "";
+let requestId = 0;
+let active = false;
+
+const $ = id => document.getElementById(id);
+
+function showStatus(message) {
+  $("status").textContent = "● " + message;
+}
+
+function getDigit(quote, pipSize) {
+  const formatted = Number(quote).toFixed(pipSize);
+  return Number(formatted.slice(-1));
+}
+
+function send(data) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+  }
+}
+
+function render() {
+  $("count").textContent = digits.length;
+  if (!digits.length) return;
+
+  $("last").textContent = digits[0];
+
+  const counts = Array(10).fill(0);
+  digits.forEach(d => counts[d]++);
+
+  let max = Math.max(...counts);
+  let min = Math.min(...counts);
+  let match = counts.indexOf(max);
+  let differ = counts.indexOf(min);
+
+  $("match").textContent = "MOST FREQUENT DIGIT";
+  $("matchDigit").textContent = match;
+  $("matchRate").textContent =
+    "Historical frequency: " + (max / digits.length * 100).toFixed(1) + "%";
+
+  $("differ").textContent = "LEAST FREQUENT DIGIT";
+  $("differDigit").textContent = differ;
+  $("differRate").textContent =
+    "Historical frequency: " + (min / digits.length * 100).toFixed(1) + "%";
+
+  $("digits").innerHTML = counts.map((n, i) =>
+    `<div class="digitbox ${i === match ? "active" : ""}">
+      ${i}<br><b>${n}</b>
+    </div>`
+  ).join("");
+
+  $("history").innerHTML = digits.slice(0, 15).map((d, i) =>
+    `<tr><td>${i + 1}</td><td>${d}</td></tr>`
+  ).join("");
+}
+
+function closeConnection() {
+  active = false;
+  if (subscriptionId) {
+    send({ forget: subscriptionId });
+    subscriptionId = null;
+  }
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+}
+
+function startAnalysis() {
+  closeConnection();
+  digits = [];
+  render();
+
+  currentSymbol = $("symbol").value;
+  showStatus("CONNECTING...");
+
+  ws = new WebSocket(
+    `wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`
+  );
+
+  ws.onopen = () => {
+    active = true;
+    showStatus("CONNECTED - LOADING HISTORY");
+    send({
+      ticks_history: currentSymbol,
+      end: "latest",
+      count: 100,
+      style: "ticks",
+      req_id: 1
+    });
+  };
+
+  ws.onmessage = event => {
+    const data = JSON.parse(event.data);
+
+    if (data.error) {
+      showStatus("ERROR: " + data.error.message);
+      return;
+    }
+
+    if (data.msg_type === "history") {
+      const prices = data.history.prices;
+      const pip = data.pip_size;
+
+      digits = prices.map(p => getDigit(p, pip)).reverse().slice(0,100);
+      render();
+
+      if (active) {
+        showStatus("LIVE - RECEIVING TICKS");
+        send({
+          ticks: currentSymbol,
+          subscribe: 1,
+          req_id: 2
+        });
+      }
+    }
+
+    if (data.msg_type === "tick") {
+      if (data.tick.symbol !== currentSymbol) return;
+
+      const d = getDigit(data.tick.quote, data.tick.pip_size);
+      digits.unshift(d);
+      digits = digits.slice(0,100);
+      render();
+
+      if (data.subscription) {
+        subscriptionId = data.subscription.id;
+      }
+    }
+  };
+
+  ws.onerror = () => showStatus("CONNECTION ERROR");
+
+  ws.onclose = () => {
+    if (active) showStatus("CONNECTION CLOSED");
+    active = false;
+  };
+}
+
+$("start").addEventListener("click", startAnalysis);
+
+$("stop").addEventListener("click", () => {
+  closeConnection();
+  showStatus("STOPPED");
+});
+</script>
+
+</body>
+</html>
